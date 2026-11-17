@@ -15,7 +15,7 @@
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
 main{max-width:620px;margin:0 auto;padding:24px 0 36px}header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}h1{font-size:25px;margin:0} .pill{font-size:13px;color:var(--green);background:#e8f6ef;padding:7px 11px;border-radius:99px}
 .panel,.task{background:var(--card);border:1px solid var(--line);border-radius:17px;padding:16px;margin-bottom:13px;box-shadow:0 2px 8px #15223808}
-.progress-head{display:flex;justify-content:space-between;align-items:center;font-weight:650;margin-bottom:10px}.percent{color:var(--green);font-size:22px}.track{height:9px;background:#e9edf2;border-radius:99px;overflow:hidden}.bar{height:100%;width:0;background:var(--green);border-radius:99px;transition:width .2s}
+.streak{display:flex;gap:12px}.streak-item{flex:1;text-align:center;background:#fff7e8;border:1px solid #f5e5c7;border-radius:14px;padding:13px 8px}.streak-num{font-size:25px;font-weight:750;color:#b76a12}.streak-label{font-size:12px;color:#80613b;margin-top:3px}.streak-note{font-size:12px;color:var(--muted);margin-top:9px}.progress-head{display:flex;justify-content:space-between;align-items:center;font-weight:650;margin-bottom:10px}.percent{color:var(--green);font-size:22px}.track{height:9px;background:#e9edf2;border-radius:99px;overflow:hidden}.bar{height:100%;width:0;background:var(--green);border-radius:99px;transition:width .2s}
 h2{font-size:16px;margin:21px 2px 11px}.add{display:flex;gap:8px}.add input{min-width:0;flex:1}input,select{font:inherit;border:1px solid var(--line);border-radius:11px;padding:12px;background:white;color:var(--ink)}button{font:inherit;border:0;border-radius:11px;padding:11px 15px;background:#17202a;color:white;font-weight:650}button:active{opacity:.75}.add button{background:var(--green)}
 .filters{display:flex;gap:7px;margin:12px 0}.filters button{flex:1;background:#e9edf2;color:#475569;padding:9px}.filters button.active{background:#17202a;color:white}
 .task{display:flex;align-items:center;gap:11px;padding:13px}.task input[type=checkbox]{width:20px;height:20px;accent-color:var(--green);flex:none}.task-title{flex:1;overflow-wrap:anywhere}.task.done .task-title{text-decoration:line-through;color:var(--muted)}.delete{background:transparent;color:var(--red);padding:7px 9px;font-size:18px}.empty{text-align:center;color:var(--muted);padding:25px 8px}.foot{font-size:12px;color:var(--muted);text-align:center;margin-top:20px}
@@ -27,6 +27,14 @@ h2{font-size:16px;margin:21px 2px 11px}.add{display:flex;gap:8px}.add input{min-
 <section class="panel">
  <div class="progress-head"><span>今日の進捗</span><span class="percent" id="percent">0%</span></div>
  <div class="track"><div class="bar" id="bar"></div></div>
+</section>
+<section class="panel">
+ <div class="progress-head"><span>🔥 連続達成記録</span><span class="pill" id="todayStatus">今日未達成</span></div>
+ <div class="streak">
+  <div class="streak-item"><div class="streak-num" id="currentStreak">0日</div><div class="streak-label">連続達成中</div></div>
+  <div class="streak-item"><div class="streak-num" id="bestStreak">0日</div><div class="streak-label">最長記録</div></div>
+ </div>
+ <div class="streak-note">1日に1つ以上のタスクを完了すると、その日が達成日として記録されます。</div>
 </section>
 <h2>新しいタスク</h2>
 <form class="add" id="form"><input id="newTask" maxlength="120" placeholder="やることを入力..." autocomplete="off" required><button type="submit">追加</button></form>
@@ -40,10 +48,22 @@ h2{font-size:16px;margin:21px 2px 11px}.add{display:flex;gap:8px}.add input{min-
 <div class="foot">タスクはこの端末のブラウザ内に自動保存されます。</div>
 </main>
 <script>
-const KEY='simple-todo-pwa-v1';let tasks=[];let filter='all';
+const KEY='simple-todo-pwa-v1', DAYS_KEY='simple-todo-completion-days-v1';let tasks=[];let filter='all';let completionDays=[];
+try{completionDays=JSON.parse(localStorage.getItem(DAYS_KEY)||'[]');if(!Array.isArray(completionDays))completionDays=[]}catch(e){completionDays=[]}
 try{tasks=JSON.parse(localStorage.getItem(KEY)||'[]');if(!Array.isArray(tasks))tasks=[]}catch(e){tasks=[]}
 const $=id=>document.getElementById(id);
-function save(){try{localStorage.setItem(KEY,JSON.stringify(tasks))}catch(e){alert('保存できませんでした。端末の空き容量を確認してください。')}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(tasks));localStorage.setItem(DAYS_KEY,JSON.stringify(completionDays))}catch(e){alert('保存できませんでした。端末の空き容量を確認してください。')}}
+function localDate(d=new Date()){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`}
+function dateOffset(date,offset){const d=new Date(date+'T12:00:00');d.setDate(d.getDate()+offset);return localDate(d)}
+function updateStreak(){
+ const today=localDate(),yesterday=dateOffset(today,-1),set=new Set(completionDays);
+ let best=0,run=0,prev=null;
+ [...set].sort().forEach(day=>{run=prev&&dateOffset(prev,1)===day?run+1:1;best=Math.max(best,run);prev=day});
+ const last=[...set].sort().at(-1);let current=0;
+ if(last===today||last===yesterday){let cursor=last;current=1;while(set.has(dateOffset(cursor,-1))){cursor=dateOffset(cursor,-1);current++}}
+ $('currentStreak').textContent=current+'日';$('bestStreak').textContent=best+'日';
+ $('todayStatus').textContent=set.has(today)?'今日達成':'今日未達成';
+}
 function render(){
  const done=tasks.filter(t=>t.done).length,total=tasks.length,pct=total?Math.round(done/total*100):0;
  $('count').textContent=`${done}/${total} 完了`; $('percent').textContent=pct+'%';$('bar').style.width=pct+'%';
@@ -53,7 +73,7 @@ function render(){
  if(!shown.length){const p=document.createElement('div');p.className='empty';p.textContent='タスクはありません。上から追加してね。';$('list').append(p);return}
  shown.forEach(t=>{
   const row=document.createElement('div');row.className='task'+(t.done?' done':'');
-  const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!t.done;cb.setAttribute('aria-label','完了にする');cb.addEventListener('change',()=>{t.done=cb.checked;save();render()});
+  const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!t.done;cb.setAttribute('aria-label','完了にする');cb.addEventListener('change',()=>{t.done=cb.checked;if(cb.checked){const day=localDate();if(!completionDays.includes(day))completionDays.push(day)}save();render()});
   const title=document.createElement('span');title.className='task-title';title.textContent=t.title;
   const del=document.createElement('button');del.className='delete';del.type='button';del.textContent='×';del.setAttribute('aria-label','削除');del.addEventListener('click',()=>{tasks=tasks.filter(x=>x.id!==t.id);save();render()});
   row.append(cb,title,del);$('list').append(row);
@@ -62,6 +82,6 @@ function render(){
 $('form').addEventListener('submit',e=>{e.preventDefault();const title=$('newTask').value.trim();if(!title)return;tasks.unshift({id:Date.now()+Math.random(),title,done:false});$('newTask').value='';save();render()});
 document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{filter=b.dataset.filter;render()}));
 if('serviceWorker' in navigator && location.protocol!=='file:'){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}))}
-render();
+render();updateStreak();
 </script>
 </body></html>
